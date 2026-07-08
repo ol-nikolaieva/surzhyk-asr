@@ -8,6 +8,9 @@ EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".mp4", ".webm"}
 for f in RAW.iterdir():
     if f.suffix.lower() not in EXTS:
         continue
+    if list(OUT.glob(f"{f.stem}_*.wav")):
+        print("skip (already sliced):", f.name)
+        continue
     subprocess.run([
         "ffmpeg", "-y", "-i", str(f),
         "-ac", "1", "-ar", "16000",          # mono, 16kHz
