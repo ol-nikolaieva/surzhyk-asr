@@ -9,5 +9,10 @@ __pycache__/
 
 # macOS
 .DS_Store
+<<<<<<< HEAD
 
+=======
+training/checkpoints/
+training/dataset.csv
+>>>>>>> b6519c7 (Whisper fine-tuning with MLflow tracking)
 mlflow-data/
