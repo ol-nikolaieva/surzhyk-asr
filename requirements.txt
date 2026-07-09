@@ -1,0 +1,17 @@
+# training
+transformers>=4.40
+torch
+evaluate
+
+# data
+datasets>=3.0
+
+# tracking
+mlflow
+
+# inference
+fastapi
+uvicorn
+python-multipart
+jiwer
+numpy
