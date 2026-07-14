@@ -268,3 +268,50 @@ FastAPI (inference/app.py)
 ```
 
 Модель тягнеться з реєстру за URI `models:/surzhyk-whisper@champion`. Коли в реєстрі з'явиться краща модель — достатньо перевісити alias `champion` і перезапустити сервіс. Код змін не потребує.
+
+---
+
+## Monitoring
+
+Збір метрик із працюючого сервісу інференсу через **Prometheus** і візуалізація в **Grafana**.
+
+### Які метрики збираються
+
+- `transcribe_requests_total` — загальна кількість запитів на транскрипцію (Counter)
+- `transcribe_latency_seconds` — час обробки кожного запиту (Histogram, бакети від 0.5с до 120с)
+- `transcribe_in_progress` — кількість запитів, що обробляються прямо зараз (Gauge)
+
+Метрики експортуються ендпоінтом `GET /metrics` у форматі Prometheus.
+
+### Як підняти моніторинг
+
+Prometheus і Grafana піднімаються разом з рештою інфраструктури:
+
+```bash
+docker compose up -d
+source .venv/bin/activate
+uvicorn inference.app:app --host 0.0.0.0 --port 8000
+```
+
+| Сервіс | URL | Доступ |
+|---|---|---|
+| Grafana (дашборд) | http://localhost:3000 | `admin` / `admin` |
+| Prometheus (метрики) | http://localhost:9090 | — |
+| FastAPI /metrics | http://localhost:8000/metrics | — |
+
+### Де дивитися дашборд
+
+Grafana: http://localhost:3000 → дашборд **Surzhyk ASR Monitoring**.
+
+Три панелі:
+- **Requests per minute** — кількість транскрипцій за хвилину
+- **Average latency** — середній час обробки запиту
+- **P95 latency** — час, за який встигають 95% запитів
+
+### Як згенерувати навантаження
+
+```bash
+python monitoring/load_test.py
+```
+
+Скрипт послідовно відправляє аудіокліпи з датасету на `/transcribe` з паузою між запитами, щоб на дашборді було видно рівномірне навантаження.
