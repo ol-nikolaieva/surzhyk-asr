@@ -2,6 +2,7 @@
 import os
 import subprocess
 import tempfile
+import time
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,9 +12,18 @@ import mlflow.transformers
 import numpy as np
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from mlflow.exceptions import MlflowException
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from transformers import Pipeline, pipeline
+
+REQUEST_COUNT = Counter("transcribe_requests_total", "Total transcription requests")
+REQUEST_LATENCY = Histogram(
+    "transcribe_latency_seconds",
+    "Transcription latency",
+    buckets=[0.5, 1, 2, 5, 10, 30, 60, 120],
+)
+IN_PROGRESS = Gauge("transcribe_in_progress", "Requests currently being processed")
 
 os.environ.setdefault("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "minioadmin")
@@ -324,33 +334,46 @@ def _read_wav(path: str) -> tuple[np.ndarray, float]:
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
-    asr = state.get("asr")
-    if asr is None:
-        raise HTTPException(status_code=503, detail="Model is not loaded yet")
+    REQUEST_COUNT.inc()
+    IN_PROGRESS.inc()
+    start_time = time.perf_counter()
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        src_suffix = Path(file.filename or "").suffix or ".audio"
-        src_path = os.path.join(tmp_dir, f"input{src_suffix}")
-        wav_path = os.path.join(tmp_dir, "normalized.wav")
+    try:
+        asr = state.get("asr")
+        if asr is None:
+            raise HTTPException(status_code=503, detail="Model is not loaded yet")
 
-        with open(src_path, "wb") as f:
-            f.write(await file.read())
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            src_suffix = Path(file.filename or "").suffix or ".audio"
+            src_path = os.path.join(tmp_dir, f"input{src_suffix}")
+            wav_path = os.path.join(tmp_dir, "normalized.wav")
 
-        try:
-            _to_wav_16k_mono(src_path, wav_path)
-        except subprocess.CalledProcessError as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"ffmpeg не зміг обробити аудіо: {e.stderr.decode(errors='replace')}",
-            ) from e
+            with open(src_path, "wb") as f:
+                f.write(await file.read())
 
-        audio, duration_sec = _read_wav(wav_path)
-        result = asr({"raw": audio, "sampling_rate": 16000})
+            try:
+                _to_wav_16k_mono(src_path, wav_path)
+            except subprocess.CalledProcessError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"ffmpeg не зміг обробити аудіо: {e.stderr.decode(errors='replace')}",
+                ) from e
 
-    text = result["text"].strip() if isinstance(result, dict) else str(result).strip()
-    return {"text": text, "duration_sec": duration_sec}
+            audio, duration_sec = _read_wav(wav_path)
+            result = asr({"raw": audio, "sampling_rate": 16000})
+
+        text = result["text"].strip() if isinstance(result, dict) else str(result).strip()
+        return {"text": text, "duration_sec": duration_sec}
+    finally:
+        IN_PROGRESS.dec()
+        REQUEST_LATENCY.observe(time.perf_counter() - start_time)
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "model": MODEL_LABEL}
+
+
+@app.get("/metrics")
+async def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

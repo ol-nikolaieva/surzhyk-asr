@@ -1,6 +1,8 @@
 # службовий стан Docker-контейнерів — відтворюється з docker-compose.yml
 labelstudio-data/
 minio-data/
+mlflow-data/
+monitoring/grafana-data/
 
 # python
 __pycache__/
@@ -9,10 +11,6 @@ __pycache__/
 
 # macOS
 .DS_Store
-<<<<<<< HEAD
 
-=======
 training/checkpoints/
 training/dataset.csv
->>>>>>> b6519c7 (Whisper fine-tuning with MLflow tracking)
-mlflow-data/

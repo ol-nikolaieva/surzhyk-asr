@@ -15,20 +15,30 @@ TOKENIZER_FALLBACK = "openai/whisper-tiny"
 p = argparse.ArgumentParser()
 p.add_argument("--checkpoint", default="training/checkpoints/checkpoint-84")
 p.add_argument("--dataset", default="training/dataset.csv")
+p.add_argument("--baseline", action="store_true",
+                help="оцінити оригінальну претреновану модель (--model) замість чекпоінта")
+p.add_argument("--model", default="openai/whisper-small",
+                help="ім'я претренованої моделі на HuggingFace, використовується лише з --baseline")
 args = p.parse_args()
 
 device = "mps"
 
-try:
-    processor = WhisperProcessor.from_pretrained(args.checkpoint, language="ukrainian", task="transcribe")
-except (TypeError, OSError):
-    print(f"No tokenizer found in {args.checkpoint}, using tokenizer from {TOKENIZER_FALLBACK} "
-          "(multilingual Whisper vocab is identical across model sizes).")
-    feature_extractor = WhisperFeatureExtractor.from_pretrained(args.checkpoint)
-    tokenizer = WhisperTokenizerFast.from_pretrained(TOKENIZER_FALLBACK, language="ukrainian", task="transcribe")
-    processor = WhisperProcessor(feature_extractor=feature_extractor, tokenizer=tokenizer)
+if args.baseline:
+    print(f"Baseline mode: завантажую оригінальну модель {args.model} з HuggingFace.")
+    processor = WhisperProcessor.from_pretrained(args.model, language="ukrainian", task="transcribe")
+    model = WhisperForConditionalGeneration.from_pretrained(args.model).to(device)
+else:
+    try:
+        processor = WhisperProcessor.from_pretrained(args.checkpoint, language="ukrainian", task="transcribe")
+    except (TypeError, OSError):
+        print(f"No tokenizer found in {args.checkpoint}, using tokenizer from {TOKENIZER_FALLBACK} "
+              "(multilingual Whisper vocab is identical across model sizes).")
+        feature_extractor = WhisperFeatureExtractor.from_pretrained(args.checkpoint)
+        tokenizer = WhisperTokenizerFast.from_pretrained(TOKENIZER_FALLBACK, language="ukrainian", task="transcribe")
+        processor = WhisperProcessor(feature_extractor=feature_extractor, tokenizer=tokenizer)
 
-model = WhisperForConditionalGeneration.from_pretrained(args.checkpoint).to(device)
+    model = WhisperForConditionalGeneration.from_pretrained(args.checkpoint).to(device)
+
 model.eval()
 
 # той самий спліт, що й у training/train.py, щоб eval-кліпи збігалися
