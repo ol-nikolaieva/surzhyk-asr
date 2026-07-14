@@ -1,0 +1,145 @@
+name: Train and Deploy
+
+# self-hosted, бо MLflow/MinIO/модель живуть тільки на локальній машині
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "training/**"
+      - "inference/**"
+
+env:
+  MLFLOW_TRACKING_URI: http://localhost:5001
+  MLFLOW_S3_ENDPOINT_URL: http://localhost:9000
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+
+jobs:
+  train:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Ensure MLflow + MinIO stack is up
+        run: |
+          docker compose up -d mlflow minio
+          for i in $(seq 1 30); do
+            curl -sf "$MLFLOW_TRACKING_URI/health" && break
+            echo "waiting for MLflow ($i/30)..."
+            sleep 2
+          done
+
+      - name: Prepare dataset (Label Studio export -> training/dataset.csv)
+        run: |
+          source .venv/bin/activate
+          python training/prepare_dataset.py
+
+      - name: Train (whisper-tiny, 1 epoch - швидкий прогін для CI)
+        run: |
+          source .venv/bin/activate
+          python training/train.py \
+            --model openai/whisper-tiny \
+            --epochs 1 \
+            --lr 1e-5 \
+            --batch 8 \
+            --dataset-version v3
+
+      - name: Verify model registered in MLflow
+        run: |
+          source .venv/bin/activate
+          python -c "
+          import mlflow
+          from mlflow.tracking import MlflowClient
+
+          client = MlflowClient()
+          versions = client.search_model_versions(\"name='surzhyk-whisper'\")
+          assert versions, 'жодної версії surzhyk-whisper у MLflow Registry не знайдено'
+          latest = max(versions, key=lambda v: int(v.version))
+          print(f'surzhyk-whisper зареєстровано: version={latest.version}, run_id={latest.run_id}')
+          "
+
+      - name: Promote to champion (if improved)
+        run: |
+          source .venv/bin/activate
+          python -c "
+          import os
+          import mlflow
+          from mlflow.tracking import MlflowClient
+          from mlflow.exceptions import MlflowException
+
+          client = MlflowClient(os.environ['MLFLOW_TRACKING_URI'])
+
+          versions = client.search_model_versions(\"name='surzhyk-whisper'\")
+          assert versions, 'жодної версії surzhyk-whisper у MLflow Registry не знайдено'
+          latest = max(versions, key=lambda v: int(v.version))
+          new_wer = client.get_run(latest.run_id).data.metrics.get('final_wer')
+          assert new_wer is not None, f'у run {latest.run_id} немає метрики final_wer — нікуди промоутити'
+
+          try:
+              champ = client.get_model_version_by_alias('surzhyk-whisper', 'champion')
+          except MlflowException:
+              champ = None
+
+          if champ is None:
+              print('Поточного champion немає — перший деплой')
+              client.set_registered_model_alias('surzhyk-whisper', 'champion', latest.version)
+              print(f'PROMOTED: champion -> version {latest.version} (WER {new_wer})')
+          else:
+              champ_wer = client.get_run(champ.run_id).data.metrics.get('final_wer')
+              print(f'Поточний champion: version {champ.version}, WER {champ_wer}')
+              print(f'Нова модель: version {latest.version}, WER {new_wer}')
+              if champ_wer is None:
+                  print('У champion немає метрики final_wer — промоутимо нову модель обережності заради')
+                  client.set_registered_model_alias('surzhyk-whisper', 'champion', latest.version)
+                  print(f'PROMOTED: champion -> version {latest.version}')
+              elif new_wer <= champ_wer:
+                  client.set_registered_model_alias('surzhyk-whisper', 'champion', latest.version)
+                  print(f'PROMOTED: champion -> version {latest.version}')
+              else:
+                  print(f'SKIPPED: WER нової моделі {new_wer} гірший за champion WER {champ_wer}')
+          "
+
+  deploy:
+    needs: train
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Start FastAPI inference service
+        run: |
+          source .venv/bin/activate
+          nohup uvicorn inference.app:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
+          echo $! > uvicorn.pid
+
+      - name: Wait for model to load
+        run: sleep 30
+
+      - name: Health check
+        run: curl -sf http://localhost:8000/health
+
+      - name: Test transcription request
+        run: |
+          curl -sf -X POST http://localhost:8000/transcribe \
+            -F "file=@data/processed/Andrii Nikolaiev - record_000.wav" \
+            -o response.json
+          cat response.json
+          grep -q '"text"' response.json
+
+      - name: Stop uvicorn
+        if: always()
+        run: |
+          if [ -f uvicorn.pid ]; then
+            kill "$(cat uvicorn.pid)" || true
+            rm -f uvicorn.pid
+          fi
