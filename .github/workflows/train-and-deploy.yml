@@ -34,14 +34,11 @@ jobs:
           ln -s /Users/onikolaieva/Documents/Projects/surzhyk-asr/data/labeled data/labeled
           ls data/labeled/annotations.json
 
-      - name: Ensure MLflow + MinIO stack is up
+      - name: Verify MLflow + MinIO are reachable
         run: |
-          docker compose up -d mlflow minio
-          for i in $(seq 1 30); do
-            curl -sf "$MLFLOW_TRACKING_URI/health" && break
-            echo "waiting for MLflow ($i/30)..."
-            sleep 2
-          done
+          curl -sf http://localhost:5001/health || (echo "MLflow not running. Start docker compose up -d from the project directory first." && exit 1)
+          curl -sf http://localhost:9000/minio/health/live || (echo "MinIO not running." && exit 1)
+          echo "MLflow and MinIO are up"
 
       - name: Prepare dataset (Label Studio export -> training/dataset.csv)
         run: |
