@@ -26,10 +26,13 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Restore data from DVC
+      - name: Link data from main project
         run: |
-          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
-          dvc checkout
+          rm -rf data/raw data/processed data/labeled
+          ln -s /Users/onikolaieva/Documents/Projects/surzhyk-asr/data/raw data/raw
+          ln -s /Users/onikolaieva/Documents/Projects/surzhyk-asr/data/processed data/processed
+          ln -s /Users/onikolaieva/Documents/Projects/surzhyk-asr/data/labeled data/labeled
+          ls data/labeled/annotations.json
 
       - name: Ensure MLflow + MinIO stack is up
         run: |
@@ -121,10 +124,13 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Restore data from DVC
+      - name: Link data from main project
         run: |
-          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
-          dvc checkout
+          rm -rf data/raw data/processed data/labeled
+          ln -s /Users/onikolaieva/Documents/Projects/surzhyk-asr/data/raw data/raw
+          ln -s /Users/onikolaieva/Documents/Projects/surzhyk-asr/data/processed data/processed
+          ln -s /Users/onikolaieva/Documents/Projects/surzhyk-asr/data/labeled data/labeled
+          ls data/labeled/annotations.json
 
       - name: Start FastAPI inference service
         run: |
