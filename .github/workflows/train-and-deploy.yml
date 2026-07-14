@@ -37,12 +37,12 @@ jobs:
 
       - name: Prepare dataset (Label Studio export -> training/dataset.csv)
         run: |
-          source .venv/bin/activate
+          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
           python training/prepare_dataset.py
 
       - name: Train (whisper-tiny, 1 epoch - швидкий прогін для CI)
         run: |
-          source .venv/bin/activate
+          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
           python training/train.py \
             --model openai/whisper-tiny \
             --epochs 1 \
@@ -52,7 +52,7 @@ jobs:
 
       - name: Verify model registered in MLflow
         run: |
-          source .venv/bin/activate
+          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
           python -c "
           import mlflow
           from mlflow.tracking import MlflowClient
@@ -66,7 +66,7 @@ jobs:
 
       - name: Promote to champion (if improved)
         run: |
-          source .venv/bin/activate
+          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
           python -c "
           import os
           import mlflow
@@ -118,7 +118,7 @@ jobs:
 
       - name: Start FastAPI inference service
         run: |
-          source .venv/bin/activate
+          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
           nohup uvicorn inference.app:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
           echo $! > uvicorn.pid
 
