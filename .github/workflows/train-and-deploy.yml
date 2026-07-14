@@ -26,6 +26,11 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Restore data from DVC
+        run: |
+          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
+          dvc checkout
+
       - name: Ensure MLflow + MinIO stack is up
         run: |
           docker compose up -d mlflow minio
@@ -115,6 +120,11 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Restore data from DVC
+        run: |
+          source /Users/onikolaieva/Documents/Projects/surzhyk-asr/.venv/bin/activate
+          dvc checkout
 
       - name: Start FastAPI inference service
         run: |
